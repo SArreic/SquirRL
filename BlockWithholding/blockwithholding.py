@@ -35,93 +35,94 @@ CLI = argparse.ArgumentParser()
 
 CLI.add_argument(
     "--alphas",
-    nargs = '*',
-    type = float,
-    default = [.4, .5]
+    nargs='*',
+    type=float,
+    default=[.4, .5]
 )
 CLI.add_argument(
     "--impact",
-    type = float,
-    default = .2
+    type=float,
+    default=.2
 )
 CLI.add_argument(
     "--threshold",
-    type = float,
-    default = .02
+    type=float,
+    default=.02
 )
 CLI.add_argument(
     '--algo',
-    type = str,
-    default = 'PPO'
+    type=str,
+    default='PPO'
 )
 CLI.add_argument(
     '--use_lstm',
-    type = bool,
-    default = False
+    type=bool,
+    default=False
 )
 CLI.add_argument(
     '--gamma',
-    type = float,
-    default = 0.99
+    type=float,
+    default=0.99
 )
 CLI.add_argument(
     '--lr',
-    type = float,
-    default = 1e-6
+    type=float,
+    default=1e-6
 )
 CLI.add_argument(
     '--lmbda',
-    type = float,
-    default = 1.0
+    type=float,
+    default=1.0
 )
 CLI.add_argument(
     '--iteration',
-    type = int,
-    default = 10
+    type=int,
+    default=10
 )
 CLI.add_argument(
     '--episodes',
-    type = int,
-    default = 1e6
+    type=int,
+    default=1e6
 )
 CLI.add_argument(
     '--ep_length',
-    type = int,
-    default = 1
+    type=int,
+    default=1
 )
 CLI.add_argument(
     '--gpus',
-    type = int,
-    default = 0
+    type=int,
+    default=0
 )
 CLI.add_argument(
     '--NE',
-    type = bool,
-    default = False
+    type=bool,
+    default=False
 )
 CLI.add_argument(
     '--workers',
-    type = int,
-    default = 5
+    type=int,
+    default=5
 )
 CLI.add_argument(
     '--evaluate',
-    type = bool,
-    default = False
+    type=bool,
+    default=False
 )
 CLI.add_argument(
     '--eval_ep',
-    type = int,
-    default = 1
+    type=int,
+    default=1
 )
 args = CLI.parse_args()
 
 eps = 1e-6
 
-#setting in miner's dilemma
+# setting in miner's dilemma
 ACTION_SPACE = spaces.Box(low=np.array([0.]), high=np.array([1.]), dtype=np.float32)
 STATE_SPACE = spaces.Discrete(1)
 NE = dict()
+
 
 def get_optimal_strategy(a, b, y):
     x = sym.Symbol('x', real=True)
@@ -131,7 +132,7 @@ def get_optimal_strategy(a, b, y):
     d1 = sym.Eq(sym.diff(r1, x), 0.)
 
     A = sym.solve(d1, x)
-    
+
     if A:
         for i in A:
             if (i > eps and i < a - eps):
@@ -142,18 +143,20 @@ def get_optimal_strategy(a, b, y):
     else:
         return a, r1.subs(x, a)
 
+
 def plot_Nash_equilibrium(x, y, z, name):
-    x, y = np.meshgrid(x,y)
+    x, y = np.meshgrid(x, y)
 
     z = z.transpose()
     intensity = z.reshape(len(y), len(x))
-   
+
     plt.title(name)
     plt.pcolormesh(x, y, intensity, rasterized=True)
     plt.clim(0., 1.2)
-    plt.colorbar() #need a colorbar to show the intensity scale
-    #plt.show() #boom
-   
+    plt.colorbar()  # need a colorbar to show the intensity scale
+    # plt.show() #boom
+
+
 def compute_reward(a, b, x, y):
     if (x + y > 1 - eps):
         return {'0': 0., '1': 0.}
@@ -167,10 +170,11 @@ def compute_reward(a, b, x, y):
     r2 = ((a * R2) + y * (R1 + R2)) / (a * b + a * x + b * y)
     return {'0': r1, '1': r2}
 
+
 def get_Nash_equilibrium(alphas):
     a = alphas[0]
     b = alphas[1]
-    if (a + b > 1. or (a < eps and b < eps)): 
+    if (a + b > 1. or (a < eps and b < eps)):
         return 0., 0., 1., 1.
 
     x = 0.
@@ -178,13 +182,14 @@ def get_Nash_equilibrium(alphas):
     while (True):
         X, R1 = get_optimal_strategy(a, b, y)
         Y, R2 = get_optimal_strategy(b, a, x)
-        
+
         if (abs(X - x) < eps and abs(Y - y) < eps):
             rev = compute_reward(a, b, x, y)
             return x, y, rev['0'], rev['1']
-        
+
         x = X
         y = Y
+
 
 class MigrationEnv(MultiAgentEnv):
     def __init__(self, env_config):
@@ -201,14 +206,14 @@ class MigrationEnv(MultiAgentEnv):
         self.largest_pool = np.full((self.N, 2), -1)
 
         self.num_moves = 0
-   
+
     def compute_states(self):
         obs_state = dict()
         self.largest_pool = np.full((self.N, 2), -1)
         for i in range(len(self.alphas)):
             tmp = np.array([self.alphas[i], 0., 0., 0.])
             rest = []
-            
+
             for j in range(len(self.alphas)):
                 if i == j:
                     continue
@@ -224,19 +229,19 @@ class MigrationEnv(MultiAgentEnv):
                         rest.append(tmp[2])
                     tmp[2] = self.alphas[j]
                     self.largest_pool[i][1] = j
-                else: 
+                else:
                     rest.append(self.alphas[j])
 
             tmp[3] = np.array(rest).std()
             obs_state[str(i)] = tmp
         return obs_state
 
-    #reset the environment to the starting state
+    # reset the environment to the starting state
     def reset(self):
         self.num_moves = 0
         self.alphas = np.array(self.HASHRATE)
         self.attr = np.full((self.N), 1.)
-        return self.compute_states() 
+        return self.compute_states()
 
     def construct_action(self, action_dict):
         action = np.empty([self.N, self.N], dtype=np.float32)
@@ -249,10 +254,9 @@ class MigrationEnv(MultiAgentEnv):
                 action[i][self.largest_pool[i][1]] = self.alphas[i] * action_dict[str(i)][1]
             if (action[i].sum() > 1 - eps):
                 action[i] = action[i] / (action[i] + eps)
-        
+
         return action
 
-    
     def step(self, action_dict):
         self.num_moves += 1
 
@@ -260,7 +264,7 @@ class MigrationEnv(MultiAgentEnv):
         b = np.empty([self.N], dtype=np.float32)
 
         action = self.construct_action(action_dict)
-        #print("states:{}\n{}\n{}\n".format(self.compute_states(), action_dict, action))
+        # print("states:{}\n{}\n{}\n".format(self.compute_states(), action_dict, action))
         infiltrate = action.sum(1)
         infiltrated = action.sum(0)
         total = action.sum()
@@ -294,20 +298,21 @@ class MigrationEnv(MultiAgentEnv):
             cov = np.diag(mean) - np.dot(np.transpose([mean]), [mean])
             mig = np.random.multivariate_normal(sumn * mean, sumn * cov)
             for j in range(self.N):
-                #self.alphas[i] += tmp_alphas[j] * max(0, 1 - self.attr[j] - self.threshold) * self.attr[i] / self.attr.sum()
+                # self.alphas[i] += tmp_alphas[j] * max(0, 1 - self.attr[j] - self.threshold) * self.attr[i] / self.attr.sum()
                 self.alphas[j] += mig[j]
 
-        assert(abs(self.alphas.sum() - 1.) < eps)
-        
+        assert (abs(self.alphas.sum() - 1.) < eps)
+
         alphas = dict()
         for i in range(self.N):
             alphas[str(i)] = self.alphas[i] - tmp_alphas[i]
-        
+
         info = dict()
         for i in range(self.N):
             info[str(i)] = {'policy': np.array(action[i]), 'reward': r[i], 'alphas': self.alphas[i]}
 
         return self.compute_states(), alphas, done, info
+
 
 class BlockWithholdingEnv(MultiAgentEnv):
     def __init__(self, env_config):
@@ -320,15 +325,15 @@ class BlockWithholdingEnv(MultiAgentEnv):
         self.episode_length = env_config['ep_length']
 
         self.num_moves = 0
-    
-    #reset the environment to the starting state
+
+    # reset the environment to the starting state
     def reset(self):
         self.num_moves = 0
         return {
             '0': 0,
             '1': 0
         }
-    
+
     def step(self, action_dict):
         self.num_moves += 1
 
@@ -345,6 +350,7 @@ class BlockWithholdingEnv(MultiAgentEnv):
         info['1'] = {'policy': y * b, 'reward': R['1']}
 
         return {'0': 0, '1': 0}, R, done, info
+
 
 class Constant(Policy):
     def __init__(self, observation_space, action_space, config):
@@ -373,13 +379,13 @@ class Constant(Policy):
     def set_weights(self, weights):
         pass
 
+
 class NE_strategy(Policy):
     def __init__(self, observation_space, action_space, config):
         Policy.__init__(self, observation_space, action_space, config)
         x, y, r1, r2 = get_Nash_equilibrium(config['alphas'])
         self.infiltrating = y / config['alphas'][1]
-    
-    
+
     def compute_actions(self,
                         obs_batch,
                         state_batches,
@@ -402,22 +408,26 @@ class NE_strategy(Policy):
     def set_weights(self, weights):
         pass
 
+
 def on_episode_start(info):
     episode = info["episode"]
+
 
 def on_episode_step(info):
     episode = info["episode"]
     episode.user_data['0'] = episode.last_info_for('0')
     episode.user_data['1'] = episode.last_info_for('1')
 
+
 def on_episode_end(info):
     episode = info["episode"]
     print(episode.user_data)
 
+
 def run_RL(policies_to_train, policies):
     def select_policy(agent_id):
         return agent_id
-    
+
     tune.run(
         args.algo,
         stop={"episodes_total": args.episodes},
@@ -440,8 +450,8 @@ def run_RL(policies_to_train, policies):
                 "policy_mapping_fn": select_policy,
             },
             "env_config": {
-                "alphas":args.alphas,
-                'ep_length':args.ep_length
+                "alphas": args.alphas,
+                'ep_length': args.ep_length
             },
             "monitor": True,
             "callbacks": {
@@ -462,10 +472,8 @@ policies = dict()
 for i in range(len(args.alphas)):
     policies[str(i)] = (None, STATE_SPACE, ACTION_SPACE, {
         "model": {
-            "use_lstm":args.use_lstm
+            "use_lstm": args.use_lstm
         }
     })
 
 run_RL(policies_to_train, policies)
-
-
